@@ -1,28 +1,47 @@
-@{ ViewBag.Title = "Suggest an Operator or Correction"; }
+@model OCM.Web.Models.OperatorProposalEditModel
+
+@{
+    ViewBag.Title = "Find or Suggest an Operator";
+    var restrictProposalScopeToGlobal = ViewBag.RestrictProposalScopeToGlobal == true;
+}
 
 <div class="container-fluid">
     <div class="row">
         <div class="col-12 col-lg-10 col-xl-8">
-            <h2 class="mb-2">Suggest an Operator or Correction</h2>
-            <p class="text-muted mb-4">All submissions are reviewed before they change public data.</p>
+            <h2 class="mb-2">Find or Suggest an Operator</h2>
+            <p class="text-muted mb-4">Search first to avoid duplicates. All submissions are reviewed before they change public data.</p>
 
-            <div class="row">
-                <div class="col-md-6 mb-4">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h3 class="h5">Propose a new operator</h3>
-                            <p class="text-muted">Submit an operator that is not currently listed.</p>
-                            <a class="btn btn-primary mt-auto align-self-start" href="@Url.Action("Add")">Propose a new operator</a>
-                        </div>
+            <div class="card mb-4">
+                <div class="card-header h5 mb-0">Find an operator</div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="proposal-scope">Operator scope</label>
+                        @if (restrictProposalScopeToGlobal)
+                        {
+                            <div class="form-control-plaintext">Global / multinational</div>
+                            <input type="hidden" id="proposal-scope" value="2" />
+                        }
+                        else
+                        {
+                            @Html.DropDownListFor(m => m.Scope, (SelectList)ViewBag.ScopeList, new { @class = "custom-select", id = "proposal-scope" })
+                        }
+                        <small class="form-text text-muted">@(restrictProposalScopeToGlobal ? "Country editors can suggest multinational operators for admin review." : "Choose the country for a country-specific operator, or search global/multinational operators.")</small>
                     </div>
-                </div>
-                <div class="col-md-6 mb-4">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h3 class="h5">Suggest a correction</h3>
-                            <p class="text-muted">Find an existing operator and suggest updated details for review.</p>
-                            <a class="btn btn-primary mt-auto align-self-start" href="@Url.Action("Edit")">Suggest a correction</a>
+                    <div class="form-group" id="country-field">
+                        <label for="CountryID">Country</label>
+                        @Html.DropDownListFor(m => m.CountryID, (SelectList)ViewBag.CountryList, "Select a country", new { @class = "custom-select" })
+                    </div>
+                    <div class="form-group mb-0">
+                        <label for="operator-search">Operator name</label>
+                        <div class="input-group">
+                            <input type="search" id="operator-search" class="form-control" placeholder="Search by operator name" autocomplete="off" minlength="2" />
+                            <div class="input-group-append">
+                                <button type="button" id="operator-search-button" class="btn btn-outline-secondary">Search</button>
+                            </div>
                         </div>
+                        <div id="operator-search-guidance" class="form-text text-muted mt-2"></div>
+                        <div id="operator-search-results" class="list-group mt-2" style="display:none;"></div>
+                        <a id="propose-new-operator" class="btn btn-primary mt-3" style="display:none;">Can’t find it? Propose a new operator</a>
                     </div>
                 </div>
             </div>
@@ -31,3 +50,130 @@
         </div>
     </div>
 </div>
+
+<script>
+    (function () {
+        var scope = document.getElementById('proposal-scope');
+        var country = document.getElementById('CountryID');
+        var countryField = document.getElementById('country-field');
+        var search = document.getElementById('operator-search');
+        var searchButton = document.getElementById('operator-search-button');
+        var guidance = document.getElementById('operator-search-guidance');
+        var results = document.getElementById('operator-search-results');
+        var proposeNew = document.getElementById('propose-new-operator');
+        var searchTimer;
+        var searchRequest = 0;
+        var searchUrl = '@Url.Action("SearchOperators")';
+        var directoryUrl = '@Url.Action("Index", "Operators")';
+        var correctionUrl = '@Url.Action("Edit")';
+        var newOperatorUrl = '@Url.Action("Add")';
+
+        function isCountrySpecific() {
+            return scope.value === '1';
+        }
+
+        function clearResults() {
+            results.innerHTML = '';
+            results.style.display = 'none';
+            proposeNew.style.display = 'none';
+        }
+
+        function updateScope() {
+            countryField.style.display = isCountrySpecific() ? '' : 'none';
+            clearResults();
+            guidance.textContent = isCountrySpecific() && !country.value
+                ? 'Select a country before searching.'
+                : 'Enter at least 2 characters to search.';
+        }
+
+        function queryParams() {
+            var params = new URLSearchParams();
+            params.set('keyword', search.value.trim());
+            params.set('countryId', isCountrySpecific() ? country.value : '-1');
+            return params;
+        }
+
+        function updateNewOperatorLink() {
+            var params = new URLSearchParams();
+            params.set('scope', scope.value);
+            params.set('operatorName', search.value.trim());
+            if (isCountrySpecific() && country.value) params.set('countryId', country.value);
+            proposeNew.href = newOperatorUrl + '?' + params.toString();
+            proposeNew.style.display = '';
+        }
+
+        function addResult(item) {
+            var link = document.createElement('a');
+            link.className = 'list-group-item list-group-item-action';
+            link.href = correctionUrl + '?operatorId=' + encodeURIComponent(item.id);
+
+            var title = document.createElement('strong');
+            title.textContent = item.title;
+            link.appendChild(title);
+            if (item.websiteURL) {
+                var website = document.createElement('div');
+                var websiteText = document.createElement('small');
+                websiteText.className = 'text-muted';
+                websiteText.textContent = item.websiteURL;
+                website.appendChild(websiteText);
+                link.appendChild(website);
+            }
+            results.appendChild(link);
+        }
+
+        function searchOperators() {
+            var term = search.value.trim();
+            if (isCountrySpecific() && !country.value) {
+                clearResults();
+                guidance.textContent = 'Select a country before searching.';
+                return;
+            }
+            if (term.length < 2) {
+                clearResults();
+                guidance.textContent = 'Enter at least 2 characters to search.';
+                return;
+            }
+
+            var request = ++searchRequest;
+            guidance.textContent = 'Searching…';
+            fetch(searchUrl + '?term=' + encodeURIComponent(term) + '&scope=' + encodeURIComponent(scope.value) + '&countryId=' + encodeURIComponent(country.value || ''))
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (request !== searchRequest) return;
+                    results.innerHTML = '';
+                    (data.matches || []).forEach(addResult);
+                    results.style.display = data.matches && data.matches.length ? '' : 'none';
+                    if (data.total > 8) {
+                        var all = document.createElement('a');
+                        all.className = 'list-group-item list-group-item-action text-center';
+                        all.href = directoryUrl + '?' + queryParams().toString();
+                        all.textContent = 'See all ' + data.total + ' matching operators';
+                        results.appendChild(all);
+                    }
+                    guidance.textContent = data.total
+                        ? 'Select an existing operator to suggest a correction.'
+                        : 'No matching operators found.';
+                    updateNewOperatorLink();
+                })
+                .catch(function () {
+                    if (request !== searchRequest) return;
+                    clearResults();
+                    guidance.textContent = 'Operator search is temporarily unavailable. You can still propose a new operator.';
+                    updateNewOperatorLink();
+                });
+        }
+
+        scope.addEventListener('change', updateScope);
+        country.addEventListener('change', function () {
+            clearResults();
+            if (search.value.trim().length >= 2) searchOperators();
+        });
+        search.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(searchOperators, 250);
+        });
+        search.addEventListener('focus', searchOperators);
+        searchButton.addEventListener('click', searchOperators);
+        updateScope();
+    })();
+</script>
