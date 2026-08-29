@@ -1,9 +1,11 @@
 @model OCM.API.Utils.PaginatedCollection<OCM.API.Common.Model.OperatorInfo>
+@using Microsoft.AspNetCore.Http;
 
 @{
     ViewBag.Title = "Operator Directory";
     var keyword = ViewData["keyword"] as string;
     var countryId = ViewData["countryId"] as int?;
+    var isSignedIn = Context.Session.GetInt32("UserID").HasValue;
 }
 
 <div class="container-fluid">
@@ -49,13 +51,21 @@
                     <div class="list-group list-group-flush">
                         @foreach (var item in Model)
                         {
-                            <a class="list-group-item list-group-item-action" href="@Url.Action("Details", "Operators", new { id = item.ID })">
-                                <strong>@item.Title</strong>
-                                @if (!string.IsNullOrWhiteSpace(item.WebsiteURL))
-                                {
-                                    <div><small class="text-muted">@item.WebsiteURL</small></div>
-                                }
-                            </a>
+                            <div class="list-group-item">
+                                <div class="d-flex align-items-center">
+                                    <a class="flex-grow-1 text-body" href="@Url.Action("Details", "Operators", new { id = item.ID })">
+                                        <strong>@item.Title</strong>
+                                        @if (!string.IsNullOrWhiteSpace(item.WebsiteURL))
+                                        {
+                                            <div><small class="text-muted">@item.WebsiteURL</small></div>
+                                        }
+                                    </a>
+                                    @if (isSignedIn)
+                                    {
+                                        <a class="btn btn-sm btn-outline-secondary ml-3" href="@Url.Action("Edit", "OperatorProposals", new { operatorId = item.ID })">Suggest a correction</a>
+                                    }
+                                </div>
+                            </div>
                         }
                     </div>
                 </div>

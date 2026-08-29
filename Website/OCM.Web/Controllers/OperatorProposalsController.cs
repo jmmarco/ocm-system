@@ -117,13 +117,18 @@ namespace OCM.MVC.Controllers
         [HttpGet]
         public ActionResult Index()
         {
-            return View();
+            var model = new OperatorProposalEditModel
+            {
+                Scope = IsCountryEditor() ? OperatorProposalScope.Global : OperatorProposalScope.CountrySpecific
+            };
+            PopulateLists(model);
+            return View(model);
         }
 
         [HttpGet]
-        public ActionResult Add(OperatorProposalScope? scope)
+        public ActionResult Add(OperatorProposalScope? scope, int? countryId, string operatorName)
         {
-            return RenderSubmit(OperatorProposalType.New, scope);
+            return RenderSubmit(OperatorProposalType.New, scope, countryId, operatorName);
         }
 
         [HttpGet]
@@ -138,13 +143,16 @@ namespace OCM.MVC.Controllers
             return RedirectToAction(proposalType == OperatorProposalType.Correction ? nameof(Edit) : nameof(Add));
         }
 
-        private ActionResult RenderSubmit(OperatorProposalType proposalType, OperatorProposalScope? scope = null, int? operatorId = null)
+        private ActionResult RenderSubmit(OperatorProposalType proposalType, OperatorProposalScope? scope = null,
+            int? countryId = null, string operatorName = null, int? operatorId = null)
         {
             var restrictToGlobal = IsCountryEditor();
             var model = new OperatorProposalEditModel
             {
                 ProposalType = proposalType,
-                Scope = restrictToGlobal ? OperatorProposalScope.Global : scope ?? OperatorProposalScope.CountrySpecific
+                Scope = restrictToGlobal ? OperatorProposalScope.Global : scope ?? OperatorProposalScope.CountrySpecific,
+                CountryID = restrictToGlobal ? null : countryId,
+                OperatorName = proposalType == OperatorProposalType.New ? operatorName?.Trim() : null
             };
 
             if (proposalType == OperatorProposalType.Correction && operatorId.HasValue)
@@ -278,17 +286,24 @@ namespace OCM.MVC.Controllers
 
             var operators = new OperatorInfoManager().GetOperators()
                 .Where(o => o.ID > 1 && o.Title.IndexOf(term.Trim(), StringComparison.OrdinalIgnoreCase) >= 0);
+            var countries = new ReferenceDataManager().GetCountries(false);
             if (scope == OperatorProposalScope.CountrySpecific)
             {
                 if (!countryId.HasValue) return Json(new { matches = Array.Empty<object>() });
-                var country = new ReferenceDataManager().GetCountries(false).FirstOrDefault(c => c.ID == countryId.Value);
+                var country = countries.FirstOrDefault(c => c.ID == countryId.Value);
                 if (country == null) return Json(new { matches = Array.Empty<object>() });
                 var suffix = " (" + country.ISOCode.Trim().ToUpperInvariant() + ")";
                 operators = operators.Where(o => o.Title.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
             }
+            else
+            {
+                operators = operators.Where(o => !countries.Any(country =>
+                    o.Title.EndsWith(" (" + country.ISOCode.Trim().ToUpperInvariant() + ")", StringComparison.OrdinalIgnoreCase)));
+            }
 
-            var total = operators.Count();
-            var matches = (showAll ? operators : operators.Take(8)).Select(o => new
+            var orderedOperators = operators.OrderBy(o => o.Title).ToList();
+            var total = orderedOperators.Count;
+            var matches = (showAll ? orderedOperators : orderedOperators.Take(8)).Select(o => new
             {
                 id = o.ID,
                 title = o.Title,
