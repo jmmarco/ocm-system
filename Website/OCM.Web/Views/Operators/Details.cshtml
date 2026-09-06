@@ -4,6 +4,7 @@
 @{
     ViewBag.Title = Model.Title;
     var isSignedIn = Context.Session.GetInt32("UserID").HasValue;
+    var operatorAction = ViewBag.OperatorAction as string;
 }
 
 <div class="container-fluid">
@@ -53,7 +54,15 @@
             </div>
 
             <div class="d-flex flex-wrap mt-3">
-                @if (isSignedIn)
+                @if (isSignedIn && operatorAction == "admin-edit")
+                {
+                    <a class="btn btn-primary mr-2 mb-2" href="@Url.RouteUrl("AdminOperatorEdit", new { id = Model.ID })">Edit</a>
+                }
+                else if (isSignedIn && operatorAction == "country-edit")
+                {
+                    <a class="btn btn-primary mr-2 mb-2" href="@Url.Action("Edit", "CountryOperators", new { id = Model.ID })">Edit</a>
+                }
+                else if (isSignedIn && operatorAction == "suggest")
                 {
                     <a class="btn btn-primary mr-2 mb-2" href="@Url.Action("Edit", "OperatorProposals", new { operatorId = Model.ID })">Suggest a correction</a>
                 }
