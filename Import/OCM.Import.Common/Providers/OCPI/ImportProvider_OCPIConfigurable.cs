@@ -28,6 +28,7 @@ namespace OCM.Import.Providers.OCPI
             IsAutoRefreshed = config.IsAutoRefreshed;
             IsProductionReady = config.IsProductionReady;
             AllowDuplicatePOIWithDifferentOperator = config.AllowDuplicatePOIWithDifferentOperator;
+            AppendAddressToTitle = config.AppendAddressToTitle;
 
             // Set credential key if specified
             CredentialKey = config.CredentialKey;
@@ -48,6 +49,18 @@ namespace OCM.Import.Providers.OCPI
                 foreach (var locationId in config.ExcludedLocationIds)
                 {
                     ExcludedLocations.Add(locationId);
+                }
+            }
+
+            // Copy placeholder titles to discard
+            if (config.IgnoredLocationTitles != null)
+            {
+                foreach (var title in config.IgnoredLocationTitles)
+                {
+                    if (!string.IsNullOrWhiteSpace(title))
+                    {
+                        IgnoredLocationTitles.Add(title.Trim());
+                    }
                 }
             }
 

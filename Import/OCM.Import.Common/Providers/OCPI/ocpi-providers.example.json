@@ -13,6 +13,10 @@
       "IsProductionReady": false,
       "IsEnabled": false,
       "AllowDuplicatePOIWithDifferentOperator": true,
+      "AppendAddressToTitle": false,
+      "IgnoredLocationTitles": [
+        "Example Charging Station"
+      ],
       "OperatorMappings": {
         "Example Operator": 1234,
         "Another Operator": 5678
