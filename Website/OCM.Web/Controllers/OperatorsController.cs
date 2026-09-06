@@ -16,6 +16,27 @@ namespace OCM.MVC.Controllers
     {
         private const int PageSize = 25;
 
+        private string GetOperatorAction(OperatorInfo operatorInfo, List<Country> countries, User currentUser)
+        {
+            if (currentUser == null) return "";
+            if (UserManager.IsUserAdministrator(currentUser)) return "admin-edit";
+
+            var countryCode = OperatorInfoManager.GetCountryCodeFromTitle(operatorInfo.Title);
+            var country = string.IsNullOrWhiteSpace(countryCode)
+                ? null
+                : countries.FirstOrDefault(item => string.Equals(item.ISOCode, countryCode, StringComparison.OrdinalIgnoreCase));
+            return country != null && UserManager.HasUserPermission(currentUser, country.ID, PermissionLevel.Editor)
+                ? "country-edit"
+                : "suggest";
+        }
+
+        [AllowAnonymous]
+        [HttpGet("/networkoperators")]
+        public IActionResult LegacyNetworkOperators()
+        {
+            return RedirectPermanent("/operators");
+        }
+
         [HttpGet("")]
         public ActionResult Index(string keyword, int? countryId, int pageIndex = 1)
         {
@@ -61,6 +82,20 @@ namespace OCM.MVC.Controllers
             }
 
             var matches = operators.OrderBy(operatorInfo => operatorInfo.Title).ToList();
+            var countriesByCode = countries.ToDictionary(country => country.ISOCode, country => country.Title, StringComparer.OrdinalIgnoreCase);
+            ViewBag.OperatorCountries = matches.ToDictionary(
+                operatorInfo => operatorInfo.ID,
+                operatorInfo =>
+                {
+                    var countryCode = OperatorInfoManager.GetCountryCodeFromTitle(operatorInfo.Title);
+                    return string.IsNullOrWhiteSpace(countryCode) || !countriesByCode.TryGetValue(countryCode, out var countryTitle)
+                        ? "Global / multinational"
+                        : countryTitle;
+                });
+            var currentUser = UserID.HasValue ? new UserManager().GetUser(UserID.Value) : null;
+            ViewBag.OperatorActions = matches.ToDictionary(
+                operatorInfo => operatorInfo.ID,
+                operatorInfo => GetOperatorAction(operatorInfo, countries, currentUser));
             var totalPages = (int)Math.Ceiling(matches.Count / (double)PageSize);
             pageIndex = Math.Max(1, pageIndex);
             if (totalPages > 0) pageIndex = Math.Min(pageIndex, totalPages);
@@ -84,6 +119,8 @@ namespace OCM.MVC.Controllers
                 : new ReferenceDataManager().GetCountries(false)
                     .FirstOrDefault(item => string.Equals(item.ISOCode, countryCode, StringComparison.OrdinalIgnoreCase));
             ViewBag.CountryTitle = country?.Title ?? "Global / multinational";
+            ViewBag.OperatorAction = GetOperatorAction(operatorInfo, new ReferenceDataManager().GetCountries(false),
+                UserID.HasValue ? new UserManager().GetUser(UserID.Value) : null);
             return View(operatorInfo);
         }
     }
