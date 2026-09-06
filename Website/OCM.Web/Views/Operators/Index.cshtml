@@ -1,9 +1,11 @@
 @model OCM.API.Utils.PaginatedCollection<OCM.API.Common.Model.OperatorInfo>
+@using Microsoft.AspNetCore.Http;
 
 @{
     ViewBag.Title = "Operator Directory";
     var keyword = ViewData["keyword"] as string;
     var countryId = ViewData["countryId"] as int?;
+    var isSignedIn = Context.Session.GetInt32("UserID").HasValue;
 }
 
 <div class="container-fluid">
@@ -44,19 +46,65 @@
             }
             else
             {
+                var operatorCountries = (IDictionary<int, string>)ViewBag.OperatorCountries;
+                var operatorActions = (IDictionary<int, string>)ViewBag.OperatorActions;
                 <div class="card">
                     <div class="card-header h5 mb-0">@Model.TotalResults operator@(Model.TotalResults == 1 ? "" : "s")</div>
-                    <div class="list-group list-group-flush">
-                        @foreach (var item in Model)
-                        {
-                            <a class="list-group-item list-group-item-action" href="@Url.Action("Details", "Operators", new { id = item.ID })">
-                                <strong>@item.Title</strong>
-                                @if (!string.IsNullOrWhiteSpace(item.WebsiteURL))
+                    <div class="table-responsive">
+                        <table class="table table-striped mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Country</th>
+                                    <th scope="col">Operator</th>
+                                    <th scope="col">Website</th>
+                                    @if (isSignedIn)
+                                    {
+                                        <th scope="col" class="text-right">Action</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in Model)
                                 {
-                                    <div><small class="text-muted">@item.WebsiteURL</small></div>
+                                    var websiteLabel = item.WebsiteURL;
+                                    if (Uri.TryCreate(item.WebsiteURL, UriKind.Absolute, out var websiteUri))
+                                    {
+                                        websiteLabel = websiteUri.Host;
+                                    }
+                                    <tr>
+                                        <td>@operatorCountries[item.ID]</td>
+                                        <td>
+                                            <a class="text-body" href="@Url.Action("Details", "Operators", new { id = item.ID })">
+                                                <strong>@item.Title</strong>
+                                            </a>
+                                        </td>
+                                        <td>
+                                            @if (!string.IsNullOrWhiteSpace(item.WebsiteURL))
+                                            {
+                                                <a href="@item.WebsiteURL" target="_blank" rel="noopener noreferrer">@websiteLabel</a>
+                                            }
+                                        </td>
+                                        @if (isSignedIn)
+                                        {
+                                            <td class="text-right">
+                                                @if (operatorActions[item.ID] == "admin-edit")
+                                                {
+                                                    <a class="btn btn-sm btn-outline-secondary" href="@Url.RouteUrl("AdminOperatorEdit", new { id = item.ID })">Edit</a>
+                                                }
+                                                else if (operatorActions[item.ID] == "country-edit")
+                                                {
+                                                    <a class="btn btn-sm btn-outline-secondary" href="@Url.Action("Edit", "CountryOperators", new { id = item.ID })">Edit</a>
+                                                }
+                                                else
+                                                {
+                                                    <a class="btn btn-sm btn-outline-secondary" href="@Url.Action("Edit", "OperatorProposals", new { operatorId = item.ID })">Suggest a correction</a>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
                                 }
-                            </a>
-                        }
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
