@@ -19,24 +19,47 @@ namespace OCM.MVC.Controllers
             if (!UserID.HasValue) return false;
 
             var user = new UserManager().GetUser(UserID.Value);
-            return user != null && !UserManager.IsUserAdministrator(user) &&
-                new ReferenceDataManager().GetCountries(false)
-                    .Any(country => UserManager.HasUserPermission(user, country.ID, PermissionLevel.Editor));
+            return user != null && !UserManager.IsUserAdministrator(user) && GetEditableCountries(user).Any();
+        }
+
+        private List<Country> GetEditableCountries(User user)
+        {
+            if (user == null || UserManager.IsUserAdministrator(user)) return new List<Country>();
+
+            return new ReferenceDataManager().GetCountries(false)
+                .Where(country => UserManager.HasUserPermission(user, country.ID, PermissionLevel.Editor))
+                .ToList();
+        }
+
+        private List<Country> GetProposalCountries()
+        {
+            var countries = new ReferenceDataManager().GetCountries(false);
+            if (!IsCountryEditor()) return countries;
+
+            var user = new UserManager().GetUser(UserID.Value);
+            var editableCountryIds = new HashSet<int>(GetEditableCountries(user).Select(country => country.ID));
+            return countries.Where(country => !editableCountryIds.Contains(country.ID)).ToList();
+        }
+
+        private bool CanSubmitCountryProposal(int countryId)
+        {
+            if (!IsCountryEditor()) return true;
+
+            var user = new UserManager().GetUser(UserID.Value);
+            return !GetEditableCountries(user).Any(country => country.ID == countryId);
         }
 
         private void PopulateLists(OperatorProposalEditModel model)
         {
-            var restrictToGlobal = IsCountryEditor();
-            ViewBag.RestrictProposalScopeToGlobal = restrictToGlobal;
-            ViewBag.ScopeList = new SelectList(restrictToGlobal ? new[]
-            {
-                new { Value = "2", Text = "Global / multinational" }
-            } : new[]
+            var isCountryEditor = IsCountryEditor();
+            ViewBag.RestrictProposalScopeToGlobal = false;
+            ViewBag.IsCountryEditor = isCountryEditor;
+            ViewBag.ScopeList = new SelectList(new[]
             {
                 new { Value = "1", Text = "Country-specific" },
                 new { Value = "2", Text = "Global / multinational" }
             }, "Value", "Text", (int)model.Scope);
-            ViewBag.CountryList = new SelectList(new ReferenceDataManager().GetCountries(false), "ID", "Title", model.CountryID);
+            ViewBag.CountryList = new SelectList(GetProposalCountries(), "ID", "Title", model.CountryID);
             ViewBag.SelectedOperatorTitle = model.OperatorID.HasValue
                 ? new OperatorInfoManager().GetOperatorInfo(model.OperatorID.Value)?.Title
                 : null;
@@ -109,7 +132,7 @@ namespace OCM.MVC.Controllers
                     WebsiteURL = match.Operator.WebsiteURL,
                     MatchReason = match.Reason,
                     MatchType = match.MatchType,
-                    ViewURL = Url.Action("Index", "NetworkOperators", new { search = match.Operator.Title })
+                    ViewURL = Url.Action("Index", "NetworkOperators", new { operatorId = match.Operator.ID })
                 })
                 .ToList();
         }
@@ -117,12 +140,10 @@ namespace OCM.MVC.Controllers
         [HttpGet]
         public ActionResult Index()
         {
-            var model = new OperatorProposalEditModel
+            return RedirectToAction(nameof(Add), new
             {
-                Scope = IsCountryEditor() ? OperatorProposalScope.Global : OperatorProposalScope.CountrySpecific
-            };
-            PopulateLists(model);
-            return View(model);
+                scope = IsCountryEditor() ? OperatorProposalScope.Global : OperatorProposalScope.CountrySpecific
+            });
         }
 
         [HttpGet]
@@ -146,12 +167,11 @@ namespace OCM.MVC.Controllers
         private ActionResult RenderSubmit(OperatorProposalType proposalType, OperatorProposalScope? scope = null,
             int? countryId = null, string operatorName = null, int? operatorId = null)
         {
-            var restrictToGlobal = IsCountryEditor();
             var model = new OperatorProposalEditModel
             {
                 ProposalType = proposalType,
-                Scope = restrictToGlobal ? OperatorProposalScope.Global : scope ?? OperatorProposalScope.CountrySpecific,
-                CountryID = restrictToGlobal ? null : countryId,
+                Scope = scope ?? (IsCountryEditor() ? OperatorProposalScope.Global : OperatorProposalScope.CountrySpecific),
+                CountryID = countryId,
                 OperatorName = proposalType == OperatorProposalType.New ? operatorName?.Trim() : null
             };
 
@@ -165,6 +185,8 @@ namespace OCM.MVC.Controllers
                     ? null
                     : new ReferenceDataManager().GetCountries(false)
                         .FirstOrDefault(item => string.Equals(item.ISOCode, countryCode, StringComparison.OrdinalIgnoreCase));
+                if (country != null && !CanSubmitCountryProposal(country.ID))
+                    return RedirectToAction("Edit", "NetworkOperators", new { id = operatorInfo.ID });
                 model.Scope = country == null ? OperatorProposalScope.Global : OperatorProposalScope.CountrySpecific;
                 model.CountryID = country?.ID;
                 model.OperatorID = operatorInfo.ID;
@@ -204,12 +226,6 @@ namespace OCM.MVC.Controllers
 
         private ActionResult ProcessSubmit(OperatorProposalEditModel model)
         {
-            if (IsCountryEditor())
-            {
-                model.Scope = OperatorProposalScope.Global;
-                model.CountryID = null;
-            }
-
             PopulateLists(model);
             PopulateWebsiteMatch(model);
 
@@ -220,6 +236,10 @@ namespace OCM.MVC.Controllers
             else if (!model.CountryID.HasValue)
             {
                 ModelState.AddModelError(nameof(model.CountryID), "Please select a country.");
+            }
+            else if (!CanSubmitCountryProposal(model.CountryID.Value))
+            {
+                ModelState.AddModelError(nameof(model.CountryID), "You can edit operators in this country directly; proposals are for other countries.");
             }
 
             if (model.ProposalType == OperatorProposalType.New)
@@ -292,6 +312,7 @@ namespace OCM.MVC.Controllers
                 if (!countryId.HasValue) return Json(new { matches = Array.Empty<object>() });
                 var country = countries.FirstOrDefault(c => c.ID == countryId.Value);
                 if (country == null) return Json(new { matches = Array.Empty<object>() });
+                if (!CanSubmitCountryProposal(country.ID)) return Json(new { matches = Array.Empty<object>() });
                 var suffix = " (" + country.ISOCode.Trim().ToUpperInvariant() + ")";
                 operators = operators.Where(o => o.Title.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
             }
@@ -326,7 +347,7 @@ namespace OCM.MVC.Controllers
         [HttpGet]
         public ActionResult Operator(int id)
         {
-            return RedirectToAction("Index", "NetworkOperators", new { search = new OperatorInfoManager().GetOperatorInfo(id)?.Title });
+            return RedirectToAction("Index", "NetworkOperators", new { operatorId = id });
         }
 
         [HttpGet]
@@ -375,12 +396,14 @@ namespace OCM.MVC.Controllers
             if (proposal == null) return Forbid();
 
             var proposedOperator = JsonConvert.DeserializeObject<OperatorInfo>(proposal.ProposedData);
+            var currentOperator = proposal.OperatorID.HasValue ? new OperatorInfoManager().GetOperatorInfo(proposal.OperatorID.Value) : null;
 
             return View(new OperatorProposalReviewModel
             {
                 Proposal = proposal,
                 ProposedOperator = proposedOperator,
-                CurrentOperator = proposal.OperatorID.HasValue ? new OperatorInfoManager().GetOperatorInfo(proposal.OperatorID.Value) : null,
+                CurrentOperator = currentOperator,
+                Differences = BuildOperatorDifferences(currentOperator, proposedOperator),
                 PotentialDuplicates = FindDuplicateMatches(
                     proposedOperator?.Title,
                     (OperatorProposalScope)proposal.Scope,
@@ -390,6 +413,35 @@ namespace OCM.MVC.Controllers
                     proposal.OperatorID),
                 CountryTitle = proposal.CountryID.HasValue ? new ReferenceDataManager().GetCountries(false).FirstOrDefault(c => c.ID == proposal.CountryID.Value)?.Title : "Global / multinational",
                 SubmitterName = new UserManager().GetUser(proposal.SubmittedByUserID)?.Username
+            });
+        }
+
+        private static List<DiffItem> BuildOperatorDifferences(OperatorInfo current, OperatorInfo proposed)
+        {
+            var differences = new List<DiffItem>();
+            if (current == null || proposed == null) return differences;
+
+            AddDifference(differences, "Operator name", current.Title, proposed.Title);
+            AddDifference(differences, "Website", current.WebsiteURL, proposed.WebsiteURL);
+            AddDifference(differences, "Booking URL", current.BookingURL, proposed.BookingURL);
+            AddDifference(differences, "Primary phone", current.PhonePrimaryContact, proposed.PhonePrimaryContact);
+            AddDifference(differences, "Secondary phone", current.PhoneSecondaryContact, proposed.PhoneSecondaryContact);
+            AddDifference(differences, "Contact email", current.ContactEmail, proposed.ContactEmail);
+            AddDifference(differences, "Fault-report email", current.FaultReportEmail, proposed.FaultReportEmail);
+            AddDifference(differences, "Operator comments", current.Comments, proposed.Comments);
+
+            return differences;
+        }
+
+        private static void AddDifference(List<DiffItem> differences, string displayName, string currentValue, string proposedValue)
+        {
+            if (string.Equals(currentValue, proposedValue, StringComparison.Ordinal)) return;
+
+            differences.Add(new DiffItem
+            {
+                DisplayName = displayName,
+                ValueA = string.IsNullOrWhiteSpace(currentValue) ? "—" : currentValue,
+                ValueB = string.IsNullOrWhiteSpace(proposedValue) ? "—" : proposedValue
             });
         }
 

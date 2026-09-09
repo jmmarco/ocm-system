@@ -2,7 +2,7 @@
 
 @{
     var isCorrection = Model.ProposalType == OCM.API.Common.Model.OperatorProposalType.Correction;
-    var restrictProposalScopeToGlobal = ViewBag.RestrictProposalScopeToGlobal == true;
+    var isCountryEditor = ViewBag.IsCountryEditor == true;
     ViewBag.Title = isCorrection ? "Suggest a Correction" : "Propose a New Operator";
     var operatorSearchHasError = ViewData.ModelState[nameof(Model.OperatorID)]?.Errors.Any() == true;
     var countryHasError = ViewData.ModelState[nameof(Model.CountryID)]?.Errors.Any() == true;
@@ -24,17 +24,9 @@
                     <div class="card-body">
                         <div class="form-group">
                             @Html.LabelFor(m => m.Scope, "Proposal scope (required)")
-                            @if (restrictProposalScopeToGlobal)
-                            {
-                                <div class="form-control-plaintext">Global / multinational</div>
-                                @Html.HiddenFor(m => m.Scope, new { id = "proposal-scope" })
-                            }
-                            else
-                            {
-                                @Html.DropDownListFor(m => m.Scope, (SelectList)ViewBag.ScopeList, new { @class = "custom-select", id = "proposal-scope" })
-                            }
+                            @Html.DropDownListFor(m => m.Scope, (SelectList)ViewBag.ScopeList, new { @class = "custom-select", id = "proposal-scope" })
                             @Html.ValidationMessageFor(m => m.Scope, "", new { @class = "text-danger" })
-                            <small class="form-text text-muted">@(restrictProposalScopeToGlobal ? "Country editors can submit multinational operators for admin review." : "Choose whether this operator applies to one country or is global/multinational.")</small>
+                            <small class="form-text text-muted">@(isCountryEditor ? "You can submit global operators or operators outside your assigned countries. Use network operator management for your assigned countries." : "Choose whether this operator applies to one country or is global/multinational.")</small>
                         </div>
                         <div class="form-group" id="country-field">
                             @Html.LabelFor(m => m.CountryID, "Country (required)")

@@ -42,57 +42,79 @@
                 </div>
             </div>
 
-            <div class="card mb-4">
-                <div class="card-header h5 mb-0">Proposed operator</div>
-                <div class="card-body">
-                    <div class="form-group mb-0">
-                        <label>Operator name (required)</label>
-                        <div class="form-control-plaintext">@Model.ProposedOperator.Title</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mb-4">
-                <div class="card-header h5 mb-0">Operator public links</div>
-                <div class="card-body">
-                    <div class="row mb-0">
-                        <div class="col-md-6"><strong>Website (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.WebsiteURL) ? "—" : Model.ProposedOperator.WebsiteURL)</div></div>
-                        <div class="col-md-6"><strong>Booking URL (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.BookingURL) ? "—" : Model.ProposedOperator.BookingURL)</div></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mb-4">
-                <div class="card-header h5 mb-0">Operator contact details</div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-6 form-group"><strong>Primary phone (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.PhonePrimaryContact) ? "—" : Model.ProposedOperator.PhonePrimaryContact)</div></div>
-                        <div class="col-md-6 form-group"><strong>Secondary phone (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.PhoneSecondaryContact) ? "—" : Model.ProposedOperator.PhoneSecondaryContact)</div></div>
-                        <div class="col-md-6 form-group mb-md-0"><strong>Contact email (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.ContactEmail) ? "—" : Model.ProposedOperator.ContactEmail)</div></div>
-                        <div class="col-md-6 form-group mb-0"><strong>Fault-report email (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.FaultReportEmail) ? "—" : Model.ProposedOperator.FaultReportEmail)</div></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mb-4">
-                <div class="card-header h5 mb-0">Notes</div>
-                <div class="card-body">
-                    <dl class="row mb-0">
-                        <dt class="col-sm-4">Operator comments (optional)</dt>
-                        <dd class="col-sm-8">@(string.IsNullOrWhiteSpace(Model.ProposedOperator.Comments) ? "—" : Model.ProposedOperator.Comments)</dd>
-                    </dl>
-                </div>
-            </div>
-
-            @if (Model.CurrentOperator != null)
+            @if (Model.Proposal.ProposalType == OCM.API.Common.Model.OperatorProposalType.Correction)
             {
                 <div class="card mb-4">
-                    <div class="card-header h5 mb-0">Current operator</div>
+                    <div class="card-header h5 mb-0">Requested changes</div>
+                    <div class="card-body">
+                        @if (Model.Differences.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm mb-0">
+                                    <thead>
+                                        <tr><th>Field</th><th>Current value</th><th>Proposed value</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var difference in Model.Differences)
+                                        {
+                                            <tr>
+                                                <th scope="row">@difference.DisplayName</th>
+                                                <td>@difference.ValueA</td>
+                                                <td><strong>@difference.ValueB</strong></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="mb-0">No changes detected.</p>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card mb-4">
+                    <div class="card-header h5 mb-0">Proposed operator</div>
+                    <div class="card-body">
+                        <div class="form-group mb-0">
+                            <label>Operator name (required)</label>
+                            <div class="form-control-plaintext">@Model.ProposedOperator.Title</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header h5 mb-0">Operator public links</div>
                     <div class="card-body">
                         <div class="row mb-0">
-                            <div class="col-md-6"><strong>Operator name</strong><div>@Model.CurrentOperator.Title</div></div>
-                            <div class="col-md-6"><strong>Website</strong><div>@(string.IsNullOrWhiteSpace(Model.CurrentOperator.WebsiteURL) ? "—" : Model.CurrentOperator.WebsiteURL)</div></div>
+                            <div class="col-md-6"><strong>Website (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.WebsiteURL) ? "—" : Model.ProposedOperator.WebsiteURL)</div></div>
+                            <div class="col-md-6"><strong>Booking URL (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.BookingURL) ? "—" : Model.ProposedOperator.BookingURL)</div></div>
                         </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header h5 mb-0">Operator contact details</div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 form-group"><strong>Primary phone (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.PhonePrimaryContact) ? "—" : Model.ProposedOperator.PhonePrimaryContact)</div></div>
+                            <div class="col-md-6 form-group"><strong>Secondary phone (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.PhoneSecondaryContact) ? "—" : Model.ProposedOperator.PhoneSecondaryContact)</div></div>
+                            <div class="col-md-6 form-group mb-md-0"><strong>Contact email (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.ContactEmail) ? "—" : Model.ProposedOperator.ContactEmail)</div></div>
+                            <div class="col-md-6 form-group mb-0"><strong>Fault-report email (optional)</strong><div>@(string.IsNullOrWhiteSpace(Model.ProposedOperator.FaultReportEmail) ? "—" : Model.ProposedOperator.FaultReportEmail)</div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header h5 mb-0">Notes</div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-4">Operator comments (optional)</dt>
+                            <dd class="col-sm-8">@(string.IsNullOrWhiteSpace(Model.ProposedOperator.Comments) ? "—" : Model.ProposedOperator.Comments)</dd>
+                        </dl>
                     </div>
                 </div>
             }
