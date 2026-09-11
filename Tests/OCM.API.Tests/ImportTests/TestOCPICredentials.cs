@@ -84,9 +84,64 @@ namespace OCM.API.Tests.ImportTests
         }
 
         [Fact]
-        public void ComposeAuthHeaderValue_TreatsNullPrefixAsNoPrefix()
+        public void ComposeAuthHeaderValue_TreatsNullPrefixAsTheOcpiDefault()
         {
-            Assert.Equal("abc123", ImportProvider_OCPI.ComposeAuthHeaderValue("Authorization", null, "abc123"));
+            // a config which does not mention a prefix gets the OCPI default, an empty one opts out
+            Assert.Equal("Token abc123", ImportProvider_OCPI.ComposeAuthHeaderValue("Authorization", null, "abc123"));
+            Assert.Equal("abc123", ImportProvider_OCPI.ComposeAuthHeaderValue("Authorization", "", "abc123"));
+        }
+
+        [Fact]
+        public void ComposeAuthHeaderValue_DoesNotDuplicateAPrefixTheCredentialAlreadyCarries()
+        {
+            // vault secrets are often stored with the scheme included
+            Assert.Equal("Token abc123", ImportProvider_OCPI.ComposeAuthHeaderValue("Authorization", "Token ", "Token abc123"));
+            Assert.Equal("token abc123", ImportProvider_OCPI.ComposeAuthHeaderValue("Authorization", "Token ", "token abc123"));
+            Assert.Equal("OCPIToken abc123", ImportProvider_OCPI.ComposeAuthHeaderValue("Authorization", "OCPIToken ", "OCPIToken abc123"));
+        }
+
+        [Fact]
+        public void ComposeAuthHeaderValue_AddsTheSeparatingSpaceToAPrefixMissingOne()
+        {
+            // the admin form and stored config both trim, which would otherwise produce "Tokenabc123"
+            Assert.Equal("Token abc123", ImportProvider_OCPI.ComposeAuthHeaderValue("Authorization", "Token", "abc123"));
+        }
+
+        [Fact]
+        public void ComposeAuthHeaderValue_UsesDefaultPrefixWhenConfigOmitsIt()
+        {
+            // the import and the approval time verification have to agree on what an omitted prefix means
+            var provider = new ImportProvider_OCPIConfigurable(new OCPIProviderConfiguration
+            {
+                ProviderName = "test-provider",
+                DataProviderId = 1,
+                LocationsEndpointUrl = "https://example.com/ocpi/2.2/locations",
+                CredentialKey = "OCPI-TEST-PROVIDER"
+            });
+
+            provider.AuthHeaderValue = "abc123";
+
+            Assert.Equal("Token abc123", provider.AuthHeaderValue);
+            Assert.Equal(
+                provider.AuthHeaderValue,
+                ImportProvider_OCPI.ComposeAuthHeaderValue(null, null, "abc123"));
+        }
+
+        [Fact]
+        public void ComposeAuthHeaderValue_HonoursAnExplicitEmptyPrefixFromConfig()
+        {
+            var provider = new ImportProvider_OCPIConfigurable(new OCPIProviderConfiguration
+            {
+                ProviderName = "test-provider",
+                DataProviderId = 1,
+                LocationsEndpointUrl = "https://example.com/ocpi/2.2/locations",
+                AuthHeaderValuePrefix = string.Empty,
+                CredentialKey = "OCPI-TEST-PROVIDER"
+            });
+
+            provider.AuthHeaderValue = "abc123";
+
+            Assert.Equal("abc123", provider.AuthHeaderValue);
         }
 
         [Fact]

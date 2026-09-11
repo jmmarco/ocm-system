@@ -32,7 +32,14 @@ namespace OCM.Import.Providers.OCPI
 
             // Set credential key if specified
             CredentialKey = config.CredentialKey;
-            AuthHeaderValuePrefix = config.AuthHeaderValuePrefix;
+
+            // An omitted prefix keeps the OCPI default of "Token ", an empty one is an explicit request to
+            // send the raw credential. Assigning unconditionally would drop the default for every config
+            // which does not mention the setting.
+            if (config.AuthHeaderValuePrefix != null)
+            {
+                AuthHeaderValuePrefix = config.AuthHeaderValuePrefix;
+            }
 
             // Set default operator
             DefaultOperatorID = config.DefaultOperatorId;

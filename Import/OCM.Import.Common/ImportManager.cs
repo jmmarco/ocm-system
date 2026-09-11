@@ -1018,15 +1018,19 @@ namespace OCM.Import
             {
                 bool loadOK = false;
 
-                if (p is ImportProvider_OCPI ocpi)
+                if (p is ImportProvider_OCPI ocpi && !string.IsNullOrWhiteSpace(ocpi.CredentialKey))
                 {
-                    if (ocpi.CredentialKey != null)
+                    if (settings.Credentials != null
+                        && settings.Credentials.TryGetValue(ocpi.CredentialKey, out var cred)
+                        && !string.IsNullOrWhiteSpace(cred))
                     {
-                        if (settings.Credentials.TryGetValue(ocpi.CredentialKey, out var cred))
-                        {
-                            ocpi.AuthHeaderValue = cred;
-                        }
-
+                        ocpi.AuthHeaderValue = cred;
+                    }
+                    else
+                    {
+                        // the feed may not need one, so continue unauthenticated rather than failing here,
+                        // but say so because an otherwise unexplained 401 usually starts here
+                        Log($"No stored credential found for '{ocpi.CredentialKey}', continuing without an authorization header.");
                     }
                 }
 

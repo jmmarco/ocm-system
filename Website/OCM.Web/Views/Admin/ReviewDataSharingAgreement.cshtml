@@ -177,6 +177,7 @@
                                 <label>Auth Header Prefix</label>
                                 @Html.TextBoxFor(m => m.Review.AuthHeaderValuePrefix, new { @class = "form-control" })
                                 @Html.ValidationMessageFor(m => m.Review.AuthHeaderValuePrefix)
+                                <span class="help-block">Applied only when the stored credential does not already start with it. Clear this to send the raw credential.</span>
                             </div>
                         </div>
                         <div class="col-md-4">

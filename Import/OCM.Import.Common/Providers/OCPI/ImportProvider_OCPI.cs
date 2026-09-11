@@ -15,7 +15,7 @@ namespace OCM.Import.Providers.OCPI
     {
         private string _authHeaderKey = "Authorization";
         private string _authHeaderValue = "";
-        private string _authHeaderValuePrefix = "Token ";
+        private string _authHeaderValuePrefix = DefaultAuthHeaderValuePrefix;
 
         private int _dataProviderId = 1;
 
@@ -57,8 +57,8 @@ namespace OCM.Import.Providers.OCPI
 
         /// <summary>
         /// Optional value for the Authorization header if required.
-        /// When using the default Authorization header key, values without a recognized
-        /// prefix (Token, Bearer, Basic) will automatically have "Token " prepended.
+        /// When using the default Authorization header key, a credential which does not already carry an
+        /// auth scheme has <see cref="AuthHeaderValuePrefix"/> applied, "Token " unless configured otherwise.
         /// </summary>
         public string AuthHeaderValue
         {
@@ -67,11 +67,22 @@ namespace OCM.Import.Providers.OCPI
         }
 
         /// <summary>
+        /// Prefix applied to an Authorization header credential which does not already carry a scheme.
+        /// OCPI specifies "Token &lt;credential&gt;", so this is what a feed expects unless configured otherwise.
+        /// </summary>
+        public const string DefaultAuthHeaderValuePrefix = "Token ";
+
+        private static readonly string[] KnownAuthSchemes = ["Token ", "Bearer ", "Basic "];
+
+        /// <summary>
         /// Builds the authorization header value this provider will send for a given stored credential.
         /// Shared so that credential verification can send exactly the same header as a real import.
         /// </summary>
         /// <param name="authHeaderKey">Header name, defaults to Authorization when not supplied.</param>
-        /// <param name="authHeaderValuePrefix">Prefix applied to unprefixed credentials, e.g. "Token ".</param>
+        /// <param name="authHeaderValuePrefix">
+        /// Prefix applied to unprefixed credentials, e.g. "Token ". Null means no preference was expressed,
+        /// so the OCPI default is used; empty means the raw credential is sent with no prefix at all.
+        /// </param>
         /// <param name="credentialValue">The raw credential as stored in the secrets vault.</param>
         public static string ComposeAuthHeaderValue(string authHeaderKey, string authHeaderValuePrefix, string credentialValue)
         {
@@ -82,18 +93,57 @@ namespace OCM.Import.Providers.OCPI
 
             var headerKey = string.IsNullOrWhiteSpace(authHeaderKey) ? "Authorization" : authHeaderKey;
 
-            if (string.Equals(headerKey, "Authorization", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(headerKey, "Authorization", StringComparison.OrdinalIgnoreCase))
             {
-                // If the value doesn't already have a recognized auth prefix, prepend the configured prefix
-                if (!credentialValue.StartsWith("Token ", StringComparison.OrdinalIgnoreCase)
-                    && !credentialValue.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                    && !credentialValue.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+                // custom headers such as "apikey" carry the raw credential
+                return credentialValue;
+            }
+
+            var prefix = NormaliseAuthHeaderValuePrefix(authHeaderValuePrefix ?? DefaultAuthHeaderValuePrefix);
+
+            if (prefix.Length == 0 || HasAuthScheme(credentialValue, prefix))
+            {
+                return credentialValue;
+            }
+
+            return prefix + credentialValue;
+        }
+
+        /// <summary>
+        /// An auth header prefix is separated from the credential by a space, so a prefix configured or
+        /// typed without one ("Token") is treated as if it had been written "Token ".
+        /// </summary>
+        private static string NormaliseAuthHeaderValuePrefix(string authHeaderValuePrefix)
+        {
+            if (string.IsNullOrWhiteSpace(authHeaderValuePrefix))
+            {
+                return string.Empty;
+            }
+
+            return authHeaderValuePrefix.Trim() + " ";
+        }
+
+        /// <summary>
+        /// True when the credential already carries an auth scheme, either the configured prefix or one of
+        /// the well known ones. Vault secrets are often stored with the scheme included, and prefixing one
+        /// of those again would send "Token Token abc123".
+        /// </summary>
+        private static bool HasAuthScheme(string credentialValue, string prefix)
+        {
+            if (credentialValue.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            foreach (var scheme in KnownAuthSchemes)
+            {
+                if (credentialValue.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
                 {
-                    return (authHeaderValuePrefix ?? string.Empty) + credentialValue;
+                    return true;
                 }
             }
 
-            return credentialValue;
+            return false;
         }
 
         public string AuthHeaderKey { set { _authHeaderKey = value; } }

@@ -154,10 +154,33 @@ namespace OCM.Web.Services
     }
 
     /// <summary>
+    /// The credential an import would actually use, and where it came from.
+    /// </summary>
+    public class OCPIResolvedCredential
+    {
+        /// <summary>
+        /// The raw credential, or null when no value is held anywhere.
+        /// </summary>
+        public string Value { get; set; }
+
+        public OCPICredentialSource Source { get; set; } = OCPICredentialSource.None;
+
+        public bool HasValue => !string.IsNullOrWhiteSpace(Value);
+    }
+
+    /// <summary>
     /// Creates and verifies the secrets vault credentials used by approved OCPI imports.
     /// </summary>
     public interface IOCPICredentialService
     {
+        /// <summary>
+        /// Resolves the credential an import would use for a config, in the same precedence the approval
+        /// uses: the plaintext still held on the agreement, then the vault secret, then configuration.
+        /// Needed because the plaintext is cleared once the secret is stored, so anything which re-checks
+        /// a feed after approval has to read the credential back from the vault.
+        /// </summary>
+        Task<OCPIResolvedCredential> ResolveCredentialAsync(string credentialKey, string submittedCredential, CancellationToken cancellationToken = default);
+
         /// <summary>
         /// True when the vault is configured for writes.
         /// </summary>

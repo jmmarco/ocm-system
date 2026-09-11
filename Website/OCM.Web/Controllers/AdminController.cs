@@ -286,12 +286,40 @@ namespace OCM.MVC.Controllers
             }
         }
 
-        private async Task<OCPIValidationResult> BuildValidationPreviewAsync(AdminDataSharingAgreementEditModel review)
+        private Task<OCPIValidationResult> BuildValidationPreviewAsync(AdminDataSharingAgreementEditModel review)
+        {
+            return BuildValidationPreviewAsync(
+                review.LocationsEndpointUrl,
+                review.AuthHeaderKey,
+                review.AuthHeaderValuePrefix,
+                review.CredentialKey,
+                review.SubmittedCredentials);
+        }
+
+        /// <summary>
+        /// Previews the feed using the credential an import would actually use. The plaintext credential is
+        /// cleared from the agreement once it is stored in the key vault, so a preview which only looked at
+        /// the submission would call an approved feed with no authorization header and report a false 401.
+        /// </summary>
+        private async Task<OCPIValidationResult> BuildValidationPreviewAsync(
+            string locationsEndpointUrl,
+            string authHeaderKey,
+            string authHeaderValuePrefix,
+            string credentialKey,
+            string submittedCredential)
         {
             var validator = new OCPIFeedValidator();
-            var authHeaderKey = string.IsNullOrWhiteSpace(review.AuthHeaderKey) ? null : review.AuthHeaderKey;
-            var submittedCredentials = string.IsNullOrWhiteSpace(review.SubmittedCredentials) ? null : review.SubmittedCredentials;
-            return await validator.ValidateFeedAsync(review.LocationsEndpointUrl, authHeaderKey, submittedCredentials);
+            var headerKey = string.IsNullOrWhiteSpace(authHeaderKey) ? null : authHeaderKey;
+            var credential = await _credentialService.ResolveCredentialAsync(credentialKey, submittedCredential);
+
+            if (credential.Source == OCPICredentialSource.Vault || credential.Source == OCPICredentialSource.Configuration)
+            {
+                // an already stored credential is previewed exactly as the import will send it
+                return await validator.VerifyFeedWithStoredCredentialAsync(locationsEndpointUrl, headerKey, authHeaderValuePrefix, credential.Value);
+            }
+
+            // a credential still only held on the agreement may need its header form discovering
+            return await validator.ValidateFeedAsync(locationsEndpointUrl, headerKey, credential.Value);
         }
 
         // GET: /Admin/
@@ -435,9 +463,11 @@ namespace OCM.MVC.Controllers
             var importConfig = dataProviderManager.GetImportConfigByAgreementId(id);
 
             var existingConfig = GetStoredProviderConfiguration(importConfig);
-            var validationPreview = await new OCPIFeedValidator().ValidateFeedAsync(
+            var validationPreview = await BuildValidationPreviewAsync(
                 existingConfig?.LocationsEndpointUrl ?? agreement.DataFeedURL,
                 existingConfig?.AuthHeaderKey,
+                existingConfig?.AuthHeaderValuePrefix,
+                existingConfig?.CredentialKey,
                 agreement.Credentials);
 
             PopulateCountryList(agreement.CountryID);
@@ -483,14 +513,9 @@ namespace OCM.MVC.Controllers
                 validationPreview = await BuildValidationPreviewAsync(review);
             }
 
-            if (!review.ApproveImport
-                && !string.IsNullOrWhiteSpace(review.AuthHeaderKey)
-                && string.IsNullOrWhiteSpace(review.CredentialKey)
-                && string.IsNullOrWhiteSpace(review.SubmittedCredentials))
-            {
-                // when approving, the credential is resolved and reported on below instead
-                ModelState.AddModelError(nameof(review.CredentialKey), "Provide a key vault secret name or keep the submitted credentials when the feed requires an authorization header.");
-            }
+            // Note: an auth header key on its own does not mean the feed is authenticated, so saving a
+            // review without a credential is allowed. Approval verifies the feed and is what establishes
+            // whether a credential is needed at all.
 
             if (review.DefaultOperatorId.HasValue && review.DefaultOperatorId <= 0)
             {
@@ -516,10 +541,9 @@ namespace OCM.MVC.Controllers
 
                 if (credentialProvisioning.IsSuccess)
                 {
-                    if (!credentialProvisioning.CredentialNotRequired)
-                    {
-                        review.CredentialKey = credentialProvisioning.CredentialKey;
-                    }
+                    // when the feed needs no credential this clears any stale secret name, so the stored
+                    // import config never refers to a vault secret which was not created
+                    review.CredentialKey = credentialProvisioning.CredentialKey;
                 }
                 else
                 {
@@ -638,8 +662,9 @@ namespace OCM.MVC.Controllers
                 return RedirectToAction(nameof(ReviewDataSharingAgreement), new { id });
             }
 
-            if (!provisioning.CredentialNotRequired
-                && !string.Equals(storedConfig.CredentialKey, provisioning.CredentialKey, StringComparison.Ordinal))
+            // a provisioned credential may have been renamed, and one which turned out not to be required
+            // comes back as null, which must clear the stored name rather than leave a dangling secret
+            if (!string.Equals(storedConfig.CredentialKey, provisioning.CredentialKey, StringComparison.Ordinal))
             {
                 storedConfig.CredentialKey = provisioning.CredentialKey;
                 dataProviderManager.UpdateImportConfig(dataProvider.ID, JsonConvert.SerializeObject(storedConfig, Formatting.Indented));

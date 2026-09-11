@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -62,12 +63,23 @@ namespace OCM.Web.Services
                 return result;
             }
 
-            var requiresCredential = !string.IsNullOrWhiteSpace(request.AuthHeaderKey)
-                || !string.IsNullOrWhiteSpace(request.SubmittedCredential);
+            // A credential is only involved when one was submitted with the agreement, or when the stored
+            // config already names a vault secret. An auth header key on its own only names the header an
+            // import would use, it does not mean the feed is authenticated, so it must not force a
+            // credential to be invented for an open feed.
+            var requiresCredential = !string.IsNullOrWhiteSpace(request.SubmittedCredential)
+                || !string.IsNullOrWhiteSpace(request.CredentialKey);
 
             if (!requiresCredential)
             {
-                return await VerifyOpenFeedAsync(request, result);
+                if (await TryVerifyOpenFeedAsync(request, result))
+                {
+                    return result;
+                }
+
+                result.Errors.Add("The OCPI feed could not be read without an authorization header. Supply the credential the feed requires before approving.");
+                result.Errors.AddRange(result.Verification?.Errors ?? new List<string>());
+                return result;
             }
 
             result.CredentialKey = ResolveCredentialKey(request, result);
@@ -86,7 +98,20 @@ namespace OCM.Web.Services
             var resolved = ResolveCredentialValue(request, result, existingSecret);
             if (resolved.Value == null)
             {
-                result.Errors.Add($"No credential value is available for '{result.CredentialKey}'. Re-enter the submitted credential on this review, or create the secret in the key vault first.");
+                // The config names a secret but nothing holds a value for it. The feed may not actually
+                // need one, for example a credential which was configured but never issued, so check that
+                // before failing an approval over a credential that was never required.
+                var namedCredentialKey = result.CredentialKey;
+                result.Log.Add($"No credential value is held for '{namedCredentialKey}', checking whether the feed needs one.");
+
+                if (await TryVerifyOpenFeedAsync(request, result))
+                {
+                    result.Warnings.Add($"The feed was read without an authorization header, so no key vault secret was created for '{namedCredentialKey}' and the import config no longer refers to one.");
+                    return result;
+                }
+
+                result.Errors.Add($"No credential value is available for '{namedCredentialKey}'. Re-enter the submitted credential on this review, or create the secret in the key vault first.");
+                result.Errors.AddRange(result.Verification?.Errors ?? new List<string>());
                 return result;
             }
 
@@ -138,6 +163,33 @@ namespace OCM.Web.Services
             return await WriteSecretAsync(result, request.AgreementId, resolved.Value, cancellationToken);
         }
 
+        public async Task<OCPIResolvedCredential> ResolveCredentialAsync(string credentialKey, string submittedCredential, CancellationToken cancellationToken = default)
+        {
+            if (!string.IsNullOrWhiteSpace(submittedCredential))
+            {
+                return new OCPIResolvedCredential { Value = submittedCredential.Trim(), Source = OCPICredentialSource.Submission };
+            }
+
+            if (string.IsNullOrWhiteSpace(credentialKey))
+            {
+                return new OCPIResolvedCredential();
+            }
+
+            var secret = await TryGetSecretAsync(credentialKey, null, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(secret?.Value))
+            {
+                return new OCPIResolvedCredential { Value = secret.Value, Source = OCPICredentialSource.Vault };
+            }
+
+            var configured = _configuration[credentialKey];
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                return new OCPIResolvedCredential { Value = configured, Source = OCPICredentialSource.Configuration };
+            }
+
+            return new OCPIResolvedCredential();
+        }
+
         public async Task<OCPICredentialStatus> GetCredentialStatusAsync(string credentialKey, CancellationToken cancellationToken = default)
         {
             var status = new OCPICredentialStatus
@@ -177,10 +229,14 @@ namespace OCM.Web.Services
             return status;
         }
 
-        private async Task<OCPICredentialProvisioningResult> VerifyOpenFeedAsync(OCPICredentialProvisioningRequest request, OCPICredentialProvisioningResult result)
+        /// <summary>
+        /// Verifies the feed with no authorization header at all. On success the result is completed as an
+        /// import which needs no stored credential, and any secret name it was carrying is cleared so the
+        /// import config is never left pointing at a vault secret which does not exist. On failure the
+        /// result is left untouched apart from the verification details, for the caller to describe.
+        /// </summary>
+        private async Task<bool> TryVerifyOpenFeedAsync(OCPICredentialProvisioningRequest request, OCPICredentialProvisioningResult result)
         {
-            result.CredentialNotRequired = true;
-
             var verification = await new OCPIFeedValidator(_logger).VerifyFeedWithStoredCredentialAsync(
                 request.LocationsEndpointUrl,
                 null,
@@ -193,14 +249,15 @@ namespace OCM.Web.Services
 
             if (!verification.IsValid)
             {
-                result.Errors.Add("The OCPI feed could not be read without an authorization header.");
-                result.Errors.AddRange(verification.Errors);
-                return result;
+                return false;
             }
 
+            result.CredentialKey = null;
+            result.CredentialSource = OCPICredentialSource.None;
+            result.CredentialNotRequired = true;
             result.IsVerified = true;
             result.IsSuccess = true;
-            return result;
+            return true;
         }
 
         private static string ResolveCredentialKey(OCPICredentialProvisioningRequest request, OCPICredentialProvisioningResult result)
@@ -223,9 +280,12 @@ namespace OCM.Web.Services
             return credentialKey;
         }
 
+        /// <summary>
+        /// Reads a vault secret, reporting into <paramref name="result"/> when one is being built.
+        /// </summary>
         private async Task<KeyVaultSecret> TryGetSecretAsync(string credentialKey, OCPICredentialProvisioningResult result, CancellationToken cancellationToken)
         {
-            if (!IsVaultConfigured)
+            if (!IsVaultConfigured || string.IsNullOrWhiteSpace(credentialKey))
             {
                 return null;
             }
@@ -237,11 +297,11 @@ namespace OCM.Web.Services
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
-                result.Log.Add($"No existing key vault secret named '{credentialKey}'.");
+                result?.Log.Add($"No existing key vault secret named '{credentialKey}'.");
             }
             catch (Exception ex)
             {
-                result.Warnings.Add($"Unable to read the existing key vault secret '{credentialKey}': {ex.Message}");
+                result?.Warnings.Add($"Unable to read the existing key vault secret '{credentialKey}': {ex.Message}");
                 _logger?.LogWarning(ex, "Unable to read key vault secret {CredentialKey}", credentialKey);
             }
 

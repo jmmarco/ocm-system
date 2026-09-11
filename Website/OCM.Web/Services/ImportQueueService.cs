@@ -162,6 +162,27 @@ namespace OCM.Web.Services
             }
         }
 
+        /// <summary>
+        /// Re-reads all configuration sources, including the key vault, so credentials added since startup
+        /// are visible to this job without a restart.
+        /// </summary>
+        private void RefreshConfiguration(ILogger jobLogger)
+        {
+            if (_configuration is not IConfigurationRoot configurationRoot)
+            {
+                return;
+            }
+
+            try
+            {
+                configurationRoot.Reload();
+            }
+            catch (Exception ex)
+            {
+                jobLogger.LogWarning(ex, "Could not refresh configuration, continuing with the values loaded at startup.");
+            }
+        }
+
         private async Task ExecuteJobAsync(ImportJobState job, CancellationToken cancellationToken)
         {
             var jobLogger = new ImportLogger(this, job.JobId, _logger);
@@ -226,6 +247,11 @@ namespace OCM.Web.Services
                 {
                     importSettings.ImportUserAgent = "OCM.Web-AgreementImport";
                 }
+
+                // Credentials for newly approved imports are written to the key vault after this process
+                // started, and can be created by another instance or by hand, so re-read configuration
+                // rather than relying on the values loaded at startup.
+                RefreshConfiguration(jobLogger);
 
                 var credentials = _configuration.AsEnumerable()
                     .Where(k => !string.IsNullOrWhiteSpace(k.Value))
